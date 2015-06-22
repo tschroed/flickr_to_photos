@@ -225,7 +225,7 @@ func Authenticate() (*oauth.Credentials, error) {
 
 type client struct {
 	oauthClient *oauth.Client
-	oauthCreds *oauth.Credentials
+	oauthCreds  *oauth.Credentials
 }
 
 func decodeResponse(body []byte) ([]byte, error) {
