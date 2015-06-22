@@ -107,8 +107,10 @@ func (m *PhotoMetadata) Url(size string) (*url.URL, error) {
 	return url.Parse(urlString)
 }
 
+// TODO(trevors): Paginated calls should be generic. "Here's a call
+// and a struct type, keep making it until we run out of pages. Give
+// me back the results"
 func (c *client) PhotosGetNotInSet(extras []string) ([]PhotoMetadata, error) {
-	// <photos page="1" pages="4" perpage="500" total="1850">
 	args := url.Values{
 		"per_page": {"500"},
 	}
@@ -121,6 +123,33 @@ func (c *client) PhotosGetNotInSet(extras []string) ([]PhotoMetadata, error) {
 		args["page"] = []string{strconv.Itoa(curPage)}
 
 		value, err := c.Call("flickr.photos.getNotInSet", args)
+		if err != nil {
+			return nil, err
+		}
+		var p struct {
+			Photos []PhotoMetadata `xml:"photo"`
+			Pages  int             `xml:"pages,attr"`
+		}
+		if err := xml.Unmarshal(value, &p); err != nil {
+			return nil, err
+		}
+		photos = append(photos, p.Photos...)
+		lastPage = p.Pages
+	}
+	return photos, nil
+}
+
+func (c *client) PhotosetsGetPhotos(photoset_id int64) ([]PhotoMetadata, error){
+	args := url.Values{
+		"per_page": {"500"},
+		"photoset_id": {strconv.FormatInt(photoset_id, 10)},
+	}
+
+	photos := make([]PhotoMetadata, 0)
+	for lastPage, curPage := 1, 1; curPage <= lastPage; curPage++ {
+		args["page"] = []string{strconv.Itoa(curPage)}
+
+		value, err := c.Call("flickr.photosets.GetPhotos", args)
 		if err != nil {
 			return nil, err
 		}
@@ -267,6 +296,10 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("Got %d photosets\n", len(sets))
+
+	inSetZero, err := c.PhotosetsGetPhotos(sets[0].Id)
+	fmt.Printf("Got %d photos in %s\n", len(inSetZero), sets[0].Title)
+
 	notInSet, err := c.PhotosGetNotInSet([]string{"url_o"})
 	if err != nil {
 		log.Fatal(err)
