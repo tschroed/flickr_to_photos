@@ -1,3 +1,4 @@
+Flickr sync:
 - Pull down the list of sets and not-in-set photos
 - Farm out the list of sets to worker goroutines over a channel
 - Each thread makes a directory for the set and dumps a json of the metadata
@@ -7,3 +8,12 @@
 - A set of worker goroutines pulls photos off the channel and
   downloads them, then writes out the metadata
 - Work will be skipped if it's already been performed.
+
+Picasa sync:
+- Use metadata from filesystem or require live sync from Flickr each time?
+- Start small. Pick a photoset with < 10 images.
+- Create an album and tag with an appropriate from_flickr or whatever keyword
+- Be sure to set the slug
+- Bail if the album already exists?
+  -- Maybe go into a deep-sync mode where we check which photos are
+     actually in the album and upload any that are missing.
