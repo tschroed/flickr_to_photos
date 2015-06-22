@@ -93,7 +93,7 @@ type PhotoMetadata struct {
 	Server   int      `xml:"server,attr"`
 	Title    string   `xml:"title,attr"`
 	IsPublic bool     `xml:"ispublic,attr"`
-	OUrl string `xml:"url_o,attr"`
+	OUrl     string   `xml:"url_o,attr"`
 }
 
 func (m *PhotoMetadata) Url(size rune) (*url.URL, error) {
@@ -306,7 +306,7 @@ func main() {
 		fmt.Printf("A URL for one would be %s\n", url)
 	}
 
-	file, err := os.OpenFile(*dbDumpPath, os.O_WRONLY | os.O_CREATE, 0600)
+	file, err := os.OpenFile(*dbDumpPath, os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
 		log.Fatal(err)
 	}
