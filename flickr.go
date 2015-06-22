@@ -107,22 +107,15 @@ func (m *PhotoMetadata) Url(size string) (*url.URL, error) {
 	return url.Parse(urlString)
 }
 
-// TODO(trevors): Paginated calls should be generic. "Here's a call
-// and a struct type, keep making it until we run out of pages. Give
-// me back the results"
-func (c *client) PhotosGetNotInSet(extras []string) ([]PhotoMetadata, error) {
-	args := url.Values{
-		"per_page": {"500"},
-	}
-	if extras != nil {
-		args["extras"] = []string{strings.Join(extras, ",")}
-	}
-
+// Some photos calls are fundamentally the same but have pagination
+// needs so we handle them in one place.
+func (c *client) paginatedPhotosCall(method string, args url.Values) ([]PhotoMetadata, error) {
+	args["per_page"] = []string{"500"}
 	photos := make([]PhotoMetadata, 0)
 	for lastPage, curPage := 1, 1; curPage <= lastPage; curPage++ {
 		args["page"] = []string{strconv.Itoa(curPage)}
 
-		value, err := c.Call("flickr.photos.getNotInSet", args)
+		value, err := c.Call(method, args)
 		if err != nil {
 			return nil, err
 		}
@@ -139,31 +132,19 @@ func (c *client) PhotosGetNotInSet(extras []string) ([]PhotoMetadata, error) {
 	return photos, nil
 }
 
-func (c *client) PhotosetsGetPhotos(photoset_id int64) ([]PhotoMetadata, error){
+func (c *client) PhotosGetNotInSet(extras []string) ([]PhotoMetadata, error) {
+	args := url.Values{}
+	if extras != nil {
+		args["extras"] = []string{strings.Join(extras, ",")}
+	}
+	return c.paginatedPhotosCall("flickr.photos.getNotInSet", args)
+}
+
+func (c *client) PhotosetsGetPhotos(photoset_id int64) ([]PhotoMetadata, error) {
 	args := url.Values{
-		"per_page": {"500"},
 		"photoset_id": {strconv.FormatInt(photoset_id, 10)},
 	}
-
-	photos := make([]PhotoMetadata, 0)
-	for lastPage, curPage := 1, 1; curPage <= lastPage; curPage++ {
-		args["page"] = []string{strconv.Itoa(curPage)}
-
-		value, err := c.Call("flickr.photosets.GetPhotos", args)
-		if err != nil {
-			return nil, err
-		}
-		var p struct {
-			Photos []PhotoMetadata `xml:"photo"`
-			Pages  int             `xml:"pages,attr"`
-		}
-		if err := xml.Unmarshal(value, &p); err != nil {
-			return nil, err
-		}
-		photos = append(photos, p.Photos...)
-		lastPage = p.Pages
-	}
-	return photos, nil
+	return c.paginatedPhotosCall("flickr.photosets.getPhotos", args)
 }
 
 // // //
