@@ -11,8 +11,8 @@ import (
 	"io/ioutil"
 	"log"
 	"net/url"
+	"os"
 	"strconv"
-	"strings"
 )
 
 // API //
@@ -93,14 +93,18 @@ type PhotoMetadata struct {
 	Server   int      `xml:"server,attr"`
 	Title    string   `xml:"title,attr"`
 	IsPublic bool     `xml:"ispublic,attr"`
+	OUrl string `xml:"url_o,attr"`
 }
 
-func (m *PhotoMetadata) Url(size string) (*url.URL, error) {
+func (m *PhotoMetadata) Url(size rune) (*url.URL, error) {
 	var urlString string
-	if size == "" {
+	switch size {
+	case 0:
 		urlString = fmt.Sprintf("https://farm%d.staticflickr.com/%d/%d_%s.jpg",
 			m.Farm, m.Server, m.Id, m.Secret)
-	} else {
+	case 'o':
+		urlString = m.OUrl
+	default:
 		urlString = fmt.Sprintf("https://farm%d.staticflickr.com/%d/%d_%s_%c.jpg",
 			m.Farm, m.Server, m.Id, m.Secret, size)
 	}
@@ -111,6 +115,7 @@ func (m *PhotoMetadata) Url(size string) (*url.URL, error) {
 // needs so we handle them in one place.
 func (c *client) paginatedPhotosCall(method string, args url.Values) ([]PhotoMetadata, error) {
 	args["per_page"] = []string{"500"}
+	args["extras"] = []string{"url_o"}
 	photos := make([]PhotoMetadata, 0)
 	for lastPage, curPage := 1, 1; curPage <= lastPage; curPage++ {
 		args["page"] = []string{strconv.Itoa(curPage)}
@@ -132,11 +137,8 @@ func (c *client) paginatedPhotosCall(method string, args url.Values) ([]PhotoMet
 	return photos, nil
 }
 
-func (c *client) PhotosGetNotInSet(extras []string) ([]PhotoMetadata, error) {
+func (c *client) PhotosGetNotInSet() ([]PhotoMetadata, error) {
 	args := url.Values{}
-	if extras != nil {
-		args["extras"] = []string{strings.Join(extras, ",")}
-	}
 	return c.paginatedPhotosCall("flickr.photos.getNotInSet", args)
 }
 
@@ -160,6 +162,9 @@ var credPath = flag.String("flickr_config", "/home/tschroed/flickr_config.json",
 
 var credCachePath = flag.String("flickr_creds", "/home/tschroed/flickr_creds.json",
 	"Path to configuration file containing the application's cached credentials.")
+
+var dbDumpPath = flag.String("flickr_db_dump",
+	"/home/tschroed/tmp/flickr_dump.json", "Path to dump out all of the metadata pulled from Flickr via the API")
 
 // credentials should be json formatted like:
 // {
@@ -279,11 +284,47 @@ func main() {
 	fmt.Printf("Got %d photosets\n", len(sets))
 
 	inSetZero, err := c.PhotosetsGetPhotos(sets[0].Id)
-	fmt.Printf("Got %d photos in %s\n", len(inSetZero), sets[0].Title)
+	fmt.Printf("Got %d photos in %s (%v)\n", len(inSetZero), sets[0].Title, sets[0].Id)
+	if len(inSetZero) > 0 {
+		url, err := inSetZero[0].Url('o')
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("A URL for one would be %s\n", url)
+	}
 
-	notInSet, err := c.PhotosGetNotInSet([]string{"url_o"})
+	notInSet, err := c.PhotosGetNotInSet()
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("Got %d photos not in sets\n", len(notInSet))
+	if len(notInSet) > 0 {
+		url, err := notInSet[0].Url('o')
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("A URL for one would be %s\n", url)
+	}
+
+	file, err := os.OpenFile(*dbDumpPath, os.O_WRONLY | os.O_CREATE, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	bytes, err := json.MarshalIndent(sets, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	file.Write(bytes)
+	bytes, err = json.MarshalIndent(inSetZero, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	file.Write(bytes)
+	bytes, err = json.MarshalIndent(notInSet, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	file.Write(bytes)
 }
