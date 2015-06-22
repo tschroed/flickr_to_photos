@@ -35,7 +35,7 @@ func (c *client) Call(method string, args url.Values) ([]byte, error) {
 		args = url.Values{}
 	}
 	args["method"] = []string{method}
-	resp, err := oauthClient.Get(nil, c.creds,
+	resp, err := c.oauthClient.Get(nil, c.oauthCreds,
 		"https://api.flickr.com/services/rest", args)
 	if err != nil {
 		return nil, err
@@ -179,6 +179,7 @@ func readCredentials(path string, creds *oauth.Credentials) error {
 	return json.Unmarshal(b, creds)
 }
 
+// TODO(trevors): Touches module scoped oauthClient
 func LoadCachedCredentials() (*oauth.Credentials, error) {
 	if err := readCredentials(*credPath, &oauthClient.Credentials); err != nil {
 		log.Fatal(err)
@@ -198,6 +199,7 @@ func SaveCachedCredentials(creds *oauth.Credentials) error {
 	return ioutil.WriteFile(*credCachePath, bytes, 0600)
 }
 
+// TODO(trevors): Touches module scoped oauthClient
 func Authenticate() (*oauth.Credentials, error) {
 	if err := readCredentials(*credPath, &oauthClient.Credentials); err != nil {
 		log.Fatal(err)
@@ -222,7 +224,8 @@ func Authenticate() (*oauth.Credentials, error) {
 }
 
 type client struct {
-	creds *oauth.Credentials
+	oauthClient *oauth.Client
+	oauthCreds *oauth.Credentials
 }
 
 func decodeResponse(body []byte) ([]byte, error) {
@@ -239,17 +242,19 @@ func decodeResponse(body []byte) ([]byte, error) {
 func main() {
 	// TODO(tschroed): Make this less duplicative
 	tokenCred, err := LoadCachedCredentials()
-	var c client
+	c := client{
+		oauthClient: &oauthClient,
+	}
 	if err != nil {
 		log.Printf("Failed to load cached credentials: %#v", err)
 		tokenCred, err = Authenticate()
 		if err != nil {
 			log.Fatal("Failed to authenticate: %#v", err)
 		}
-		c.creds = tokenCred
+		c.oauthCreds = tokenCred
 		SaveCachedCredentials(tokenCred)
 	} else {
-		c.creds = tokenCred
+		c.oauthCreds = tokenCred
 		log.Printf("Loaded cached credentials")
 		_, err := c.Call("flickr.test.login", nil)
 		if err != nil {
@@ -258,7 +263,7 @@ func main() {
 			if err != nil {
 				log.Fatal("Failed to authenticate: %#v", err)
 			}
-			c.creds = tokenCred
+			c.oauthCreds = tokenCred
 			SaveCachedCredentials(tokenCred)
 		}
 	}
