@@ -45,8 +45,18 @@ type PhotosetMetadata struct {
 	Description   string   `xml:"description"`
 }
 
-type Photosets struct {
-	Sets []PhotosetMetadata `xml:"photoset"`
+func (c *client) PhotosetsGetList() ([]PhotosetMetadata, error) {
+	value, err := c.call("flickr.photosets.getList", nil)
+	if err != nil {
+		return nil, err
+	}
+	var sets struct {
+		Sets []PhotosetMetadata `xml:"photoset"`
+	}
+	if err := xml.Unmarshal(value, &sets); err != nil {
+		return nil, err
+	}
+	return sets.Sets, nil
 }
 
 // // //
@@ -156,14 +166,9 @@ func main() {
 	}
 	fmt.Printf("Got user: %s (%s)\n", user.Username, user.Id)
 
-	value, err = c.call("flickr.photosets.getList", nil)
+	sets, err := c.PhotosetsGetList()
 	if err != nil {
 		log.Fatal(err)
 	}
-	var sets Photosets
-	if err := xml.Unmarshal(value, &sets); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Got %d photosets\n", len(sets.Sets))
-	// fmt.Printf("sets: %#v\n", sets)
+	fmt.Printf("Got %d photosets\n", len(sets))
 }
