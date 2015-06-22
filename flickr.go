@@ -11,6 +11,8 @@ import (
 	"io/ioutil"
 	"log"
 	"net/url"
+	"strconv"
+	"strings"
 )
 
 // API //
@@ -25,6 +27,29 @@ type Response struct {
 	Stat    string   `xml:"stat,attr"`
 	Err     Error    `xml:"err"`
 	Value   []byte   `xml:",innerxml"`
+}
+
+func (c *client) Call(method string, args url.Values) ([]byte, error) {
+	log.Printf("Calling %s\n", method)
+	if args == nil {
+		args = url.Values{}
+	}
+	args["method"] = []string{method}
+	resp, err := oauthClient.Get(nil, c.creds,
+		"https://api.flickr.com/services/rest", args)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	buf := &bytes.Buffer{}
+	if _, err := io.Copy(buf, resp.Body); err != nil {
+		log.Fatal(err)
+	}
+	value, err := decodeResponse(buf.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 type PhotosetMetadata struct {
@@ -46,7 +71,7 @@ type PhotosetMetadata struct {
 }
 
 func (c *client) PhotosetsGetList() ([]PhotosetMetadata, error) {
-	value, err := c.call("flickr.photosets.getList", nil)
+	value, err := c.Call("flickr.photosets.getList", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +82,59 @@ func (c *client) PhotosetsGetList() ([]PhotosetMetadata, error) {
 		return nil, err
 	}
 	return sets.Sets, nil
+}
+
+type PhotoMetadata struct {
+	XMLName  xml.Name `xml:"photo"`
+	Id       int64    `xml:"id,attr"`
+	Farm     int      `xml:"farm,attr"`
+	Owner    string   `xml:"owner,attr"`
+	Secret   string   `xml:"secret,attr"`
+	Server   int      `xml:"server,attr"`
+	Title    string   `xml:"title,attr"`
+	IsPublic bool     `xml:"ispublic,attr"`
+}
+
+func (m *PhotoMetadata) Url(size string) (*url.URL, error) {
+	var urlString string
+	if size == "" {
+		urlString = fmt.Sprintf("https://farm%d.staticflickr.com/%d/%d_%s.jpg",
+			m.Farm, m.Server, m.Id, m.Secret)
+	} else {
+		urlString = fmt.Sprintf("https://farm%d.staticflickr.com/%d/%d_%s_%c.jpg",
+			m.Farm, m.Server, m.Id, m.Secret, size)
+	}
+	return url.Parse(urlString)
+}
+
+func (c *client) PhotosGetNotInSet(extras []string) ([]PhotoMetadata, error) {
+	// <photos page="1" pages="4" perpage="500" total="1850">
+	args := url.Values{
+		"per_page": {"500"},
+	}
+	if extras != nil {
+		args["extras"] = []string{strings.Join(extras, ",")}
+	}
+
+	photos := make([]PhotoMetadata, 0)
+	for lastPage, curPage := 1, 1; curPage <= lastPage; curPage++ {
+		args["page"] = []string{strconv.Itoa(curPage)}
+
+		value, err := c.Call("flickr.photos.getNotInSet", args)
+		if err != nil {
+			return nil, err
+		}
+		var p struct {
+			Photos []PhotoMetadata `xml:"photo"`
+			Pages  int             `xml:"pages,attr"`
+		}
+		if err := xml.Unmarshal(value, &p); err != nil {
+			return nil, err
+		}
+		photos = append(photos, p.Photos...)
+		lastPage = p.Pages
+	}
+	return photos, nil
 }
 
 // // //
@@ -70,24 +148,45 @@ var oauthClient = oauth.Client{
 var credPath = flag.String("flickr_config", "/home/tschroed/flickr_config.json",
 	"Path to configuration file containing the application's credentials.")
 
+var credCachePath = flag.String("flickr_creds", "/home/tschroed/flickr_creds.json",
+	"Path to configuration file containing the application's cached credentials.")
+
 // credentials should be json formatted like:
 // {
 //   "Token":"API key",
 //   "Secret":"API secret"
 // }
-func readCredentials() error {
-	b, err := ioutil.ReadFile(*credPath)
+func readCredentials(path string, creds *oauth.Credentials) error {
+	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(b, &oauthClient.Credentials)
+	return json.Unmarshal(b, creds)
+}
+
+func LoadCachedCredentials() (*oauth.Credentials, error) {
+	if err := readCredentials(*credPath, &oauthClient.Credentials); err != nil {
+		log.Fatal(err)
+	}
+	creds := &oauth.Credentials{}
+	if err := readCredentials(*credCachePath, creds); err != nil {
+		return nil, err
+	}
+	return creds, nil
+}
+
+func SaveCachedCredentials(creds *oauth.Credentials) error {
+	bytes, err := json.Marshal(creds)
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(*credCachePath, bytes, 0600)
 }
 
 func Authenticate() (*oauth.Credentials, error) {
-	if err := readCredentials(); err != nil {
+	if err := readCredentials(*credPath, &oauthClient.Credentials); err != nil {
 		log.Fatal(err)
 	}
-
 	tempCred, err := oauthClient.RequestTemporaryCredentials(nil, "oob", nil)
 	if err != nil {
 		return nil, fmt.Errorf("RequestTemporaryCredentials: %v", err)
@@ -122,37 +221,34 @@ func decodeResponse(body []byte) ([]byte, error) {
 	return rsp.Value, nil
 }
 
-func (c *client) call(method string, args url.Values) ([]byte, error) {
-	if args == nil {
-		args = url.Values{}
-	}
-	args["method"] = []string{method}
-	resp, err := oauthClient.Get(nil, c.creds,
-		"https://api.flickr.com/services/rest", args)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	buf := &bytes.Buffer{}
-	if _, err := io.Copy(buf, resp.Body); err != nil {
-		log.Fatal(err)
-	}
-	value, err := decodeResponse(buf.Bytes())
-	if err != nil {
-		return nil, err
-	}
-	return value, nil
-}
-
 func main() {
-	tokenCred, err := Authenticate()
+	// TODO(tschroed): Make this less duplicative
+	tokenCred, err := LoadCachedCredentials()
+	var c client
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Failed to load cached credentials: %#v", err)
+		tokenCred, err = Authenticate()
+		if err != nil {
+			log.Fatal("Failed to authenticate: %#v", err)
+		}
+		c.creds = tokenCred
+		SaveCachedCredentials(tokenCred)
+	} else {
+		c.creds = tokenCred
+		log.Printf("Loaded cached credentials")
+		_, err := c.Call("flickr.test.login", nil)
+		if err != nil {
+			log.Printf("Failed to make auth call: %#v", err)
+			tokenCred, err = Authenticate()
+			if err != nil {
+				log.Fatal("Failed to authenticate: %#v", err)
+			}
+			c.creds = tokenCred
+			SaveCachedCredentials(tokenCred)
+		}
 	}
 
-	c := client{creds: tokenCred}
-
-	value, err := c.call("flickr.test.login", nil)
+	value, err := c.Call("flickr.test.login", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -171,4 +267,9 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("Got %d photosets\n", len(sets))
+	notInSet, err := c.PhotosGetNotInSet([]string{"url_o"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Got %d photos not in sets\n", len(notInSet))
 }
