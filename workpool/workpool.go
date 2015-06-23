@@ -1,9 +1,7 @@
-package main
+package workpool
 
 import (
-	"fmt"
 	"sync"
-	"time"
 )
 
 type WorkPool struct {
@@ -13,11 +11,9 @@ type WorkPool struct {
 }
 
 func (wp *WorkPool) run() {
-	fmt.Println("Entering loop")
 	for f := range wp.work {
 		f()
 	}
-	fmt.Println("And done")
 	wp.wg.Done()
 }
 
@@ -47,22 +43,4 @@ func (wp *WorkPool) Join() {
 
 func (wp *WorkPool) Add(f func()) {
 	wp.work <- f
-}
-
-func main() {
-	f := func() {
-		fmt.Printf("Sleeping...")
-		time.Sleep(5 * time.Second)
-		fmt.Println("Done.")
-	}
-	wp := New(10, 0)
-	wp.Start()
-	for i := 0; i < 20; i++ {
-		wp.Add(f)
-	}
-	fmt.Println("Closing")
-	wp.Close()
-	fmt.Println("Joining")
-	wp.Join()
-	fmt.Println("Exiting")
 }

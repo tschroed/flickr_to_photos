@@ -6,12 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"github.com/tschroed/flickr_to_photos/flickr"
+	"github.com/tschroed/flickr_to_photos/workpool"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"strings"
 )
 
 var dbDumpPath = flag.String("flickr_db_dump",
@@ -22,30 +24,38 @@ var photosDir = flag.String("flickr_photos_dir",
 
 func copyImage(url *url.URL, destFile string) {
 	if err := os.MkdirAll(path.Dir(destFile), 0750); err != nil {
-		panic(err)
+		log.Fatal("Failed MkdirAll(%s): %v", path.Dir(destFile), err)
 	}
 	resp, err := http.Head(url.String())
 	if err != nil {
-		panic(err)
+		log.Fatal("Failed to Head(%s): %v", url.String(), err)
 	}
 	fi, err := os.Stat(destFile)
 	if err == nil {
 		// Already got this, return.
 		if fi.Size() == resp.ContentLength {
+			log.Printf("%s up-to-date, skipping.\n", destFile)
 			return
 		}
 		if err := os.Remove(destFile); err != nil {
-			panic(err)
+			log.Fatal("Failed to Remove(%s): %v", destFile, err)
 		}
 	}
 	resp, err = http.Get(url.String())
 	if err != nil {
-		panic(err)
+		log.Fatal("Failed to Get(%s): %v", url.String(), err)
 	}
 	defer resp.Body.Close()
 	file, err := os.OpenFile(destFile, os.O_WRONLY | os.O_CREATE, 0640)
 	defer file.Close()
-	io.Copy(file, resp.Body)
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		log.Fatal("Failed to Copy: %v", url.String(), err)
+	}
+}
+
+func extOf(path string) string {
+	parts := strings.Split(path, ".")
+	return parts[len(parts) - 1]
 }
 
 func main() {
@@ -87,7 +97,7 @@ func main() {
 	if err := xml.Unmarshal(value, &user); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Got user: %s (%s)\n", user.Username, user.Id)
+	log.Printf("Got user: %s (%s)\n", user.Username, user.Id)
 
 	sets, err := c.PhotosetsGetList()
 	if err != nil {
@@ -95,29 +105,44 @@ func main() {
 	}
 	fmt.Printf("Got %d photosets\n", len(sets))
 
-	inSetZero, err := c.PhotosetsGetPhotos(sets[0].Id)
-	fmt.Printf("Got %d photos in %s (%v)\n", len(inSetZero), sets[0].Title, sets[0].Id)
-	if len(inSetZero) > 0 {
-		url, err := inSetZero[0].Url('o')
+	wp := workpool.New(10, 0)
+	wp.Start()
+	for _, set := range sets {
+		photos, err := c.PhotosetsGetPhotos(sets[0].Id)
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("A URL for one would be %s\n", url)
+		log.Printf("Got %d photos in %s (%v)\n", len(photos), set.Title, set.Id)
+		for _, photo := range photos {
+			url, err := photo.Url('o')
+			if err != nil {
+				log.Fatal(err)
+			}
+			destFile := fmt.Sprintf("%s/%v/%v.%s", *photosDir, set.Id, photo.Id, extOf(url.Path))
+			wp.Add(func() {
+				log.Printf("%v -> %v\n", url, destFile)
+				copyImage(url, destFile)
+			})
+		}
 	}
-
+	wp.Close()
+	wp.Join()
+/*
 	notInSet, err := c.PhotosGetNotInSet()
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("Got %d photos not in sets\n", len(notInSet))
 	if len(notInSet) > 0 {
-		url, err := notInSet[0].Url('o')
+		photo := notInSet[0]
+		url, err := photo.Url('o')
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Printf("A URL for one would be %s\n", url)
-		copyImage(url, "/tmp/out.jpg")
+		copyImage(url, fmt.Sprintf("%s/%v/%v.%s", *photosDir, "not-in-set", photo.Id, extOf(url.Path)))
 	}
+*/
 
 	file, err := os.OpenFile(*dbDumpPath, os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
@@ -130,6 +155,7 @@ func main() {
 		log.Fatal(err)
 	}
 	file.Write(bytes)
+	/*
 	bytes, err = json.MarshalIndent(inSetZero, "", "  ")
 	if err != nil {
 		log.Fatal(err)
@@ -140,4 +166,5 @@ func main() {
 		log.Fatal(err)
 	}
 	file.Write(bytes)
+	*/
 }
