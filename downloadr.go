@@ -84,6 +84,7 @@ func copyPhotos(photos []flickr.PhotoMetadata, destDir string) {
 }
 
 func main() {
+	flag.Parse()
 	// TODO(tschroed): Make this less duplicative
 	tokenCred, err := flickr.LoadCachedCredentials()
 	var c *flickr.Client
