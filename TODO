@@ -1,23 +1,14 @@
 Structure and testing:
 - There are a coupl of places where the flickr client touches the
   module-scoped oauth client, but it should be relatively easy to fix.
-- Factor out an interface instead of talking about oauth.Client
-  directly.
 - Create an injectable mock or fake to stick in the client for
   testing.
 
 Flickr sync:
-- Pull down the list of sets and not-in-set photos
-- Farm out the list of sets to worker goroutines over a channel
-- Each thread makes a directory for the set and dumps a json of the metadata
 - Not-in-set must be special cased
-- Each thread pulls down a list of photos and writes them to a channel
-- The work order will be the photo metadata and a destination directory
-- A set of worker goroutines pulls photos off the channel and
-  downloads them, then writes out the metadata
-- Work will be skipped if it's already been performed.
 - Get videos
 - DON'T FORGET FLICKR TAGS!
+- Remember favorites
 
 Picasa sync:
 - Use metadata from filesystem or require live sync from Flickr each time?
