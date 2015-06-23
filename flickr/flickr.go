@@ -1,4 +1,4 @@
-package flickr_to_photos
+package flickr
 
 import (
 	"bytes"
@@ -162,9 +162,6 @@ var credPath = flag.String("flickr_config", "/home/tschroed/flickr_config.json",
 var credCachePath = flag.String("flickr_creds", "/home/tschroed/flickr_creds.json",
 	"Path to configuration file containing the application's cached credentials.")
 
-var dbDumpPath = flag.String("flickr_db_dump",
-	"/home/tschroed/tmp/flickr_dump.json", "Path to dump out all of the metadata pulled from Flickr via the API")
-
 // credentials should be json formatted like:
 // {
 //   "Token":"API key",
@@ -239,8 +236,8 @@ func decodeResponse(body []byte) ([]byte, error) {
 }
 
 func New(oauthClient *oauth.Client, oauthCreds *oauth.Credentials) *Client {
-	return &Client {
+	return &Client{
 		oauthClient: oauthClient,
-		oauthCreds: oauthCreds,
+		oauthCreds:  oauthCreds,
 	}
 }
