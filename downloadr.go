@@ -58,6 +58,26 @@ func extOf(path string) string {
 	return parts[len(parts) - 1]
 }
 
+// This just blows up on err. Slightly work-inefficient in that we
+// must complete a photoset before starting another.
+func copyPhotos(photos []flickr.PhotoMetadata, destDir string) {
+	wp := workpool.New(10, 0)
+	wp.Start()
+	for _, photo := range photos {
+		url, err := photo.Url('o')
+		if err != nil {
+			log.Fatal(err)
+		}
+		destFile := fmt.Sprintf("%s/%v.%s", destDir, photo.Id, extOf(url.Path))
+		wp.Add(func() {
+			log.Printf("%v -> %v\n", url, destFile)
+			copyImage(url, destFile)
+		})
+	}
+	wp.Close()
+	wp.Join()
+}
+
 func main() {
 	// TODO(tschroed): Make this less duplicative
 	tokenCred, err := flickr.LoadCachedCredentials()
@@ -105,28 +125,14 @@ func main() {
 	}
 	fmt.Printf("Got %d photosets\n", len(sets))
 
-	wp := workpool.New(10, 0)
-	wp.Start()
 	for _, set := range sets {
 		photos, err := c.PhotosetsGetPhotos(sets[0].Id)
 		if err != nil {
 			log.Fatal(err)
 		}
 		log.Printf("Got %d photos in %s (%v)\n", len(photos), set.Title, set.Id)
-		for _, photo := range photos {
-			url, err := photo.Url('o')
-			if err != nil {
-				log.Fatal(err)
-			}
-			destFile := fmt.Sprintf("%s/%v/%v.%s", *photosDir, set.Id, photo.Id, extOf(url.Path))
-			wp.Add(func() {
-				log.Printf("%v -> %v\n", url, destFile)
-				copyImage(url, destFile)
-			})
-		}
+		copyPhotos(photos, fmt.Sprintf("%s/sets/%v", *photosDir, set.Id))
 	}
-	wp.Close()
-	wp.Join()
 /*
 	notInSet, err := c.PhotosGetNotInSet()
 	if err != nil {
