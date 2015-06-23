@@ -1,4 +1,4 @@
-package main
+package flickr_to_photos
 
 import (
 	"bytes"
@@ -11,7 +11,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/url"
-	"os"
 	"strconv"
 )
 
@@ -29,7 +28,7 @@ type Response struct {
 	Value   []byte   `xml:",innerxml"`
 }
 
-func (c *client) Call(method string, args url.Values) ([]byte, error) {
+func (c *Client) Call(method string, args url.Values) ([]byte, error) {
 	log.Printf("Calling %s\n", method)
 	if args == nil {
 		args = url.Values{}
@@ -70,7 +69,7 @@ type PhotosetMetadata struct {
 	Description   string   `xml:"description"`
 }
 
-func (c *client) PhotosetsGetList() ([]PhotosetMetadata, error) {
+func (c *Client) PhotosetsGetList() ([]PhotosetMetadata, error) {
 	value, err := c.Call("flickr.photosets.getList", nil)
 	if err != nil {
 		return nil, err
@@ -113,7 +112,7 @@ func (m *PhotoMetadata) Url(size rune) (*url.URL, error) {
 
 // Some photos calls are fundamentally the same but have pagination
 // needs so we handle them in one place.
-func (c *client) paginatedPhotosCall(method string, args url.Values) ([]PhotoMetadata, error) {
+func (c *Client) paginatedPhotosCall(method string, args url.Values) ([]PhotoMetadata, error) {
 	args["per_page"] = []string{"500"}
 	args["extras"] = []string{"url_o"}
 	photos := make([]PhotoMetadata, 0)
@@ -137,12 +136,12 @@ func (c *client) paginatedPhotosCall(method string, args url.Values) ([]PhotoMet
 	return photos, nil
 }
 
-func (c *client) PhotosGetNotInSet() ([]PhotoMetadata, error) {
+func (c *Client) PhotosGetNotInSet() ([]PhotoMetadata, error) {
 	args := url.Values{}
 	return c.paginatedPhotosCall("flickr.photos.getNotInSet", args)
 }
 
-func (c *client) PhotosetsGetPhotos(photoset_id int64) ([]PhotoMetadata, error) {
+func (c *Client) PhotosetsGetPhotos(photoset_id int64) ([]PhotoMetadata, error) {
 	args := url.Values{
 		"photoset_id": {strconv.FormatInt(photoset_id, 10)},
 	}
@@ -151,7 +150,7 @@ func (c *client) PhotosetsGetPhotos(photoset_id int64) ([]PhotoMetadata, error) 
 
 // // //
 
-var oauthClient = oauth.Client{
+var DefaultOAuthClient = oauth.Client{
 	TemporaryCredentialRequestURI: "https://www.flickr.com/services/oauth/request_token",
 	ResourceOwnerAuthorizationURI: "https://www.flickr.com/services/oauth/authorize",
 	TokenRequestURI:               "https://www.flickr.com/services/oauth/access_token",
@@ -181,7 +180,7 @@ func readCredentials(path string, creds *oauth.Credentials) error {
 
 // TODO(trevors): Touches module scoped oauthClient
 func LoadCachedCredentials() (*oauth.Credentials, error) {
-	if err := readCredentials(*credPath, &oauthClient.Credentials); err != nil {
+	if err := readCredentials(*credPath, &DefaultOAuthClient.Credentials); err != nil {
 		log.Fatal(err)
 	}
 	creds := &oauth.Credentials{}
@@ -201,29 +200,29 @@ func SaveCachedCredentials(creds *oauth.Credentials) error {
 
 // TODO(trevors): Touches module scoped oauthClient
 func Authenticate() (*oauth.Credentials, error) {
-	if err := readCredentials(*credPath, &oauthClient.Credentials); err != nil {
+	if err := readCredentials(*credPath, &DefaultOAuthClient.Credentials); err != nil {
 		log.Fatal(err)
 	}
-	tempCred, err := oauthClient.RequestTemporaryCredentials(nil, "oob", nil)
+	tempCred, err := DefaultOAuthClient.RequestTemporaryCredentials(nil, "oob", nil)
 	if err != nil {
 		return nil, fmt.Errorf("RequestTemporaryCredentials: %v", err)
 	}
 
-	u := oauthClient.AuthorizationURL(tempCred, nil)
+	u := DefaultOAuthClient.AuthorizationURL(tempCred, nil)
 
 	fmt.Printf("1. Go to %s\n2. Authorize the application\n3. Enter verification code:\n", u)
 
 	var code string
 	fmt.Scanln(&code)
 
-	tokenCred, _, err := oauthClient.RequestToken(nil, tempCred, code)
+	tokenCred, _, err := DefaultOAuthClient.RequestToken(nil, tempCred, code)
 	if err != nil {
 		return nil, fmt.Errorf("RequestToken: %v", err)
 	}
 	return tokenCred, nil
 }
 
-type client struct {
+type Client struct {
 	oauthClient *oauth.Client
 	oauthCreds  *oauth.Credentials
 }
@@ -239,97 +238,9 @@ func decodeResponse(body []byte) ([]byte, error) {
 	return rsp.Value, nil
 }
 
-func main() {
-	// TODO(tschroed): Make this less duplicative
-	tokenCred, err := LoadCachedCredentials()
-	c := client{
-		oauthClient: &oauthClient,
+func New(oauthClient *oauth.Client, oauthCreds *oauth.Credentials) *Client {
+	return &Client {
+		oauthClient: oauthClient,
+		oauthCreds: oauthCreds,
 	}
-	if err != nil {
-		log.Printf("Failed to load cached credentials: %#v", err)
-		tokenCred, err = Authenticate()
-		if err != nil {
-			log.Fatal("Failed to authenticate: %#v", err)
-		}
-		c.oauthCreds = tokenCred
-		SaveCachedCredentials(tokenCred)
-	} else {
-		c.oauthCreds = tokenCred
-		log.Printf("Loaded cached credentials")
-		_, err := c.Call("flickr.test.login", nil)
-		if err != nil {
-			log.Printf("Failed to make auth call: %#v", err)
-			tokenCred, err = Authenticate()
-			if err != nil {
-				log.Fatal("Failed to authenticate: %#v", err)
-			}
-			c.oauthCreds = tokenCred
-			SaveCachedCredentials(tokenCred)
-		}
-	}
-
-	value, err := c.Call("flickr.test.login", nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	var user struct {
-		XMLName  xml.Name `xml:"user"`
-		Id       string   `xml:"id,attr"`
-		Username string   `xml:"username"`
-	}
-	if err := xml.Unmarshal(value, &user); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Got user: %s (%s)\n", user.Username, user.Id)
-
-	sets, err := c.PhotosetsGetList()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Got %d photosets\n", len(sets))
-
-	inSetZero, err := c.PhotosetsGetPhotos(sets[0].Id)
-	fmt.Printf("Got %d photos in %s (%v)\n", len(inSetZero), sets[0].Title, sets[0].Id)
-	if len(inSetZero) > 0 {
-		url, err := inSetZero[0].Url('o')
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("A URL for one would be %s\n", url)
-	}
-
-	notInSet, err := c.PhotosGetNotInSet()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Got %d photos not in sets\n", len(notInSet))
-	if len(notInSet) > 0 {
-		url, err := notInSet[0].Url('o')
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("A URL for one would be %s\n", url)
-	}
-
-	file, err := os.OpenFile(*dbDumpPath, os.O_WRONLY|os.O_CREATE, 0600)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	bytes, err := json.MarshalIndent(sets, "", "  ")
-	if err != nil {
-		log.Fatal(err)
-	}
-	file.Write(bytes)
-	bytes, err = json.MarshalIndent(inSetZero, "", "  ")
-	if err != nil {
-		log.Fatal(err)
-	}
-	file.Write(bytes)
-	bytes, err = json.MarshalIndent(notInSet, "", "  ")
-	if err != nil {
-		log.Fatal(err)
-	}
-	file.Write(bytes)
 }
