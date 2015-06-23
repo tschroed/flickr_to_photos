@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 )
 
 var dbDumpPath = flag.String("flickr_db_dump",
@@ -24,11 +25,11 @@ var photosDir = flag.String("flickr_photos_dir",
 
 func copyImage(url *url.URL, destFile string) {
 	if err := os.MkdirAll(path.Dir(destFile), 0750); err != nil {
-		log.Fatal("Failed MkdirAll(%s): %v", path.Dir(destFile), err)
+		log.Fatalf("Failed MkdirAll(%s): %v", path.Dir(destFile), err)
 	}
 	resp, err := http.Head(url.String())
 	if err != nil {
-		log.Fatal("Failed to Head(%s): %v", url.String(), err)
+		log.Fatalf("Failed to Head(%s): %v", url.String(), err)
 	}
 	fi, err := os.Stat(destFile)
 	if err == nil {
@@ -38,24 +39,24 @@ func copyImage(url *url.URL, destFile string) {
 			return
 		}
 		if err := os.Remove(destFile); err != nil {
-			log.Fatal("Failed to Remove(%s): %v", destFile, err)
+			log.Fatalf("Failed to Remove(%s): %v", destFile, err)
 		}
 	}
 	resp, err = http.Get(url.String())
 	if err != nil {
-		log.Fatal("Failed to Get(%s): %v", url.String(), err)
+		log.Fatalf("Failed to Get(%s): %v", url.String(), err)
 	}
 	defer resp.Body.Close()
-	file, err := os.OpenFile(destFile, os.O_WRONLY | os.O_CREATE, 0640)
+	file, err := os.OpenFile(destFile, os.O_WRONLY|os.O_CREATE, 0640)
 	defer file.Close()
 	if _, err := io.Copy(file, resp.Body); err != nil {
-		log.Fatal("Failed to Copy: %v", url.String(), err)
+		log.Fatalf("Failed to Copy: %v", url.String(), err)
 	}
 }
 
 func extOf(path string) string {
 	parts := strings.Split(path, ".")
-	return parts[len(parts) - 1]
+	return parts[len(parts)-1]
 }
 
 // This just blows up on err. Slightly work-inefficient in that we
@@ -72,6 +73,10 @@ func copyPhotos(photos []flickr.PhotoMetadata, destDir string) {
 		wp.Add(func() {
 			log.Printf("%v -> %v\n", url, destFile)
 			copyImage(url, destFile)
+			uploaded := time.Unix(photo.DateUpload, 0)
+			if err := os.Chtimes(destFile, uploaded, uploaded); err != nil {
+				log.Fatalf("Failed to Chtimes(%s, ...): %v", destFile, err)
+			}
 		})
 	}
 	wp.Close()
@@ -86,7 +91,7 @@ func main() {
 		log.Printf("Failed to load cached credentials: %#v", err)
 		tokenCred, err = flickr.Authenticate()
 		if err != nil {
-			log.Fatal("Failed to authenticate: %#v", err)
+			log.Fatalf("Failed to authenticate: %#v", err)
 		}
 		c = flickr.New(&flickr.DefaultOAuthClient, tokenCred)
 		flickr.SaveCachedCredentials(tokenCred)
@@ -98,7 +103,7 @@ func main() {
 			log.Printf("Failed to make auth call: %#v", err)
 			tokenCred, err = flickr.Authenticate()
 			if err != nil {
-				log.Fatal("Failed to authenticate: %#v", err)
+				log.Fatalf("Failed to authenticate: %#v", err)
 			}
 			c = flickr.New(&flickr.DefaultOAuthClient, tokenCred)
 			flickr.SaveCachedCredentials(tokenCred)
@@ -126,29 +131,29 @@ func main() {
 	fmt.Printf("Got %d photosets\n", len(sets))
 
 	for _, set := range sets {
-		photos, err := c.PhotosetsGetPhotos(sets[0].Id)
+		photos, err := c.PhotosetsGetPhotos(set.Id)
 		if err != nil {
 			log.Fatal(err)
 		}
 		log.Printf("Got %d photos in %s (%v)\n", len(photos), set.Title, set.Id)
 		copyPhotos(photos, fmt.Sprintf("%s/sets/%v", *photosDir, set.Id))
 	}
-/*
-	notInSet, err := c.PhotosGetNotInSet()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Got %d photos not in sets\n", len(notInSet))
-	if len(notInSet) > 0 {
-		photo := notInSet[0]
-		url, err := photo.Url('o')
+	/*
+		notInSet, err := c.PhotosGetNotInSet()
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("A URL for one would be %s\n", url)
-		copyImage(url, fmt.Sprintf("%s/%v/%v.%s", *photosDir, "not-in-set", photo.Id, extOf(url.Path)))
-	}
-*/
+		fmt.Printf("Got %d photos not in sets\n", len(notInSet))
+		if len(notInSet) > 0 {
+			photo := notInSet[0]
+			url, err := photo.Url('o')
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Printf("A URL for one would be %s\n", url)
+			copyImage(url, fmt.Sprintf("%s/%v/%v.%s", *photosDir, "not-in-set", photo.Id, extOf(url.Path)))
+		}
+	*/
 
 	file, err := os.OpenFile(*dbDumpPath, os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
@@ -162,15 +167,15 @@ func main() {
 	}
 	file.Write(bytes)
 	/*
-	bytes, err = json.MarshalIndent(inSetZero, "", "  ")
-	if err != nil {
-		log.Fatal(err)
-	}
-	file.Write(bytes)
-	bytes, err = json.MarshalIndent(notInSet, "", "  ")
-	if err != nil {
-		log.Fatal(err)
-	}
-	file.Write(bytes)
+		bytes, err = json.MarshalIndent(inSetZero, "", "  ")
+		if err != nil {
+			log.Fatal(err)
+		}
+		file.Write(bytes)
+		bytes, err = json.MarshalIndent(notInSet, "", "  ")
+		if err != nil {
+			log.Fatal(err)
+		}
+		file.Write(bytes)
 	*/
 }

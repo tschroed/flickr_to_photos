@@ -84,15 +84,17 @@ func (c *Client) PhotosetsGetList() ([]PhotosetMetadata, error) {
 }
 
 type PhotoMetadata struct {
-	XMLName  xml.Name `xml:"photo"`
-	Id       int64    `xml:"id,attr"`
-	Farm     int      `xml:"farm,attr"`
-	Owner    string   `xml:"owner,attr"`
-	Secret   string   `xml:"secret,attr"`
-	Server   int      `xml:"server,attr"`
-	Title    string   `xml:"title,attr"`
-	IsPublic bool     `xml:"ispublic,attr"`
-	OUrl     string   `xml:"url_o,attr"`
+	XMLName    xml.Name `xml:"photo"`
+	Id         int64    `xml:"id,attr"`
+	Farm       int      `xml:"farm,attr"`
+	Owner      string   `xml:"owner,attr"`
+	Secret     string   `xml:"secret,attr"`
+	Server     int      `xml:"server,attr"`
+	Title      string   `xml:"title,attr"`
+	IsPublic   bool     `xml:"ispublic,attr"`
+	OUrl       string   `xml:"url_o,attr"`
+	DateTaken  string   `xml:"datetaken,attr"`
+	DateUpload int64    `xml:"dateupload,attr"`
 }
 
 func (m *PhotoMetadata) Url(size rune) (*url.URL, error) {
@@ -114,7 +116,7 @@ func (m *PhotoMetadata) Url(size rune) (*url.URL, error) {
 // needs so we handle them in one place.
 func (c *Client) paginatedPhotosCall(method string, args url.Values) ([]PhotoMetadata, error) {
 	args["per_page"] = []string{"500"}
-	args["extras"] = []string{"url_o"}
+	args["extras"] = []string{"url_o,date_upload,date_taken"}
 	photos := make([]PhotoMetadata, 0)
 	for lastPage, curPage := 1, 1; curPage <= lastPage; curPage++ {
 		args["page"] = []string{strconv.Itoa(curPage)}
