@@ -16,6 +16,7 @@ Flickr sync:
 - A set of worker goroutines pulls photos off the channel and
   downloads them, then writes out the metadata
 - Work will be skipped if it's already been performed.
+- Get videos
 - DON'T FORGET FLICKR TAGS!
 
 Picasa sync:

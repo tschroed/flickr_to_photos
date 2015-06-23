@@ -67,7 +67,8 @@ func copyPhotos(photos []flickr.PhotoMetadata, destDir string) {
 	for _, photo := range photos {
 		url, err := photo.Url('o')
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("Couldn't get URL for photo %v: %v. Skipping.", photo.Id, err)
+			continue
 		}
 		destFile := fmt.Sprintf("%s/%v.%s", destDir, photo.Id, extOf(url.Path))
 		wp.Add(func() {

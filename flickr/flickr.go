@@ -104,6 +104,9 @@ func (m *PhotoMetadata) Url(size rune) (*url.URL, error) {
 		urlString = fmt.Sprintf("https://farm%d.staticflickr.com/%d/%d_%s.jpg",
 			m.Farm, m.Server, m.Id, m.Secret)
 	case 'o':
+		if len(m.OUrl) == 0 {
+			return nil, fmt.Errorf("No original URL for %v", m.Id)
+		}
 		urlString = m.OUrl
 	default:
 		urlString = fmt.Sprintf("https://farm%d.staticflickr.com/%d/%d_%s_%c.jpg",
